@@ -2,15 +2,28 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Admin Enforcer</title>
+    <title>Admin Enforcer (Domain Rules)</title>
+    <style>
+      body { font-family: system-ui, sans-serif; padding: 12px; }
+      input { padding: 6px; margin: 4px 0; width: 100%; box-sizing: border-box; }
+      button { margin-top: 4px; padding: 6px 10px; border: 1px solid #ccc; background:#f6f6f6; border-radius: 6px; cursor: pointer; }
+      button.secondary { background:#fff; }
+      ul { list-style:none; padding-left:0; margin-top:8px; }
+      #status { margin-top:6px; min-height:18px; }
+    </style>
   </head>
   <body>
-    <label for="admin-email">Admin Email:</label><br>
-    <input type="email" id="admin-email" placeholder="admin@domain.com">
-    <button id="lock-btn">Lock</button>
+    <label>Domain:</label>
+    <input id="domain" placeholder="disney.com" />
+    <label>Required Admin Email:</label>
+    <input id="admin-email" placeholder="erin@disney.com" />
+    <button id="add-btn">Add Rule</button>
+    <button id="reset-btn" class="secondary">Clear All</button>
     <p id="status"></p>
+    <h4>Current Rules</h4>
+    <ul id="locks"></ul>
 
-    <script src="../app.js"></script>
+    <script src="https://static.zdassets.com/zendesk_app_framework_sdk/2/zaf_sdk.min.js"></script>
+    <script src="./app.js"></script>
   </body>
 </html>
-
