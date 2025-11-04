@@ -1,29 +1,98 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Admin Enforcer (Domain Rules)</title>
-    <style>
-      body { font-family: system-ui, sans-serif; padding: 12px; }
-      input { padding: 6px; margin: 4px 0; width: 100%; box-sizing: border-box; }
-      button { margin-top: 4px; padding: 6px 10px; border: 1px solid #ccc; background:#f6f6f6; border-radius: 6px; cursor: pointer; }
-      button.secondary { background:#fff; }
-      ul { list-style:none; padding-left:0; margin-top:8px; }
-      #status { margin-top:6px; min-height:18px; }
-    </style>
-  </head>
-  <body>
-    <label>Domain:</label>
-    <input id="domain" placeholder="disney.com" />
-    <label>Required Admin Email:</label>
-    <input id="admin-email" placeholder="erin@disney.com" />
-    <button id="add-btn">Add Rule</button>
-    <button id="reset-btn" class="secondary">Clear All</button>
-    <p id="status"></p>
-    <h4>Current Rules</h4>
-    <ul id="locks"></ul>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin Enforcer</title>
+  <style>
+    :root {
+      --bg:#fff; --fg:#0f1720; --muted:#58677a;
+      --card:#ffffff; --input:#ffffff; --stroke:#d8e0e8;
+      --accent:#2563eb; --error:#b00020; --ok:#0f9d58;
+      --radius:10px;
+    }
+    *{box-sizing:border-box}
+    body {
+      margin:0; padding:8px;
+      font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      color:var(--fg); background:var(--bg);
+    }
+    .card {
+      background:var(--card); border:1px solid var(--stroke);
+      border-radius:var(--radius); box-shadow:0 2px 8px rgba(0,0,0,.04);
+      padding:8px;
+    }
+    .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+    .title{font-weight:700;font-size:13px}
+    .muted{color:var(--muted)} .small{font-size:12px}
+    .row{display:grid;gap:6px;grid-template-columns:1fr;align-items:center}
+    @media (min-width:360px){.row{grid-template-columns:1fr 1fr auto;}}
+    input{
+      background:var(--input);border:1px solid var(--stroke);color:var(--fg);
+      padding:7px 9px;border-radius:7px;outline:none;width:100%;
+    }
+    input::placeholder{color:#9aa6b2}
+    .btn{
+      border:1px solid var(--stroke);background:#f6f8fb;color:#0f1720;
+      padding:7px 10px;border-radius:7px;cursor:pointer;font-weight:600;font-size:12px;
+    }
+    .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+    .btn.danger{background:#fff0f0;border-color:#ffd6d6;color:#a50016}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .bar{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+    .status{min-height:16px;font-size:12px;color:var(--muted)}
+    .status.bad{color:var(--error)} .status.good{color:var(--ok)}
+    .hr{height:1px;background:var(--stroke);margin:8px 0}
+    .rules{display:flex;flex-direction:column;gap:6px;max-height:210px;overflow-y:auto;overflow-x:hidden}
+    .rule{display:grid;grid-template-columns:1fr auto;gap:6px;border:1px solid var(--stroke);border-radius:8px;padding:6px;}
+    @media(max-width:359px){.rule{grid-template-columns:1fr;}}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;border:1px solid var(--stroke);background:#f9fbfe;max-width:100%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .pill.email{white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+    .right{display:flex;align-items:center;gap:6px;justify-self:end}
+    .toggle{display:flex;align-items:center;gap:6px}.toggle input{width:auto}
+    .confirm{display:none;margin-top:6px;padding:8px;border:1px solid #ffe0e0;background:#fff7f7;border-radius:8px;}
+    .confirm.show{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <div>
+        <div class="title">Admin Enforcer</div>
+        <div class="muted small">Require CC by requester domain</div>
+      </div>
+      <label class="toggle small" title="Unlock to edit rules">
+        <input id="edit-toggle" type="checkbox" />
+        Edit
+      </label>
+    </div>
 
-    <script src="https://static.zdassets.com/zendesk_app_framework_sdk/2/zaf_sdk.min.js"></script>
-    <script src="./app.js"></script>
-  </body>
+    <div class="row" style="margin-bottom:6px">
+      <input id="domain" placeholder="example.com" aria-label="Domain" disabled/>
+      <input id="admin-email" placeholder="erin@example.com" aria-label="Required admin email" disabled/>
+      <button id="add-btn" class="btn primary" disabled>Add</button>
+    </div>
+
+    <div class="bar">
+      <div id="status" class="status"></div>
+      <button id="clear-btn" class="btn danger" disabled>Clear all</button>
+    </div>
+
+    <div id="confirm" class="confirm">
+      <span class="small">Clear all rules? This can’t be undone.</span>
+      <div style="display:flex;gap:6px">
+        <button id="confirm-yes" class="btn danger">Yes, clear</button>
+        <button id="confirm-no" class="btn">Cancel</button>
+      </div>
+    </div>
+
+    <div class="hr"></div>
+
+    <div class="muted small" style="margin-bottom:4px">Current Rules</div>
+    <div id="locks" class="rules"></div>
+  </div>
+
+  <script src="https://static.zdassets.com/zendesk_app_framework_sdk/2/zaf_sdk.min.js"></script>
+  <script src="./app.js"></script>
+</body>
 </html>
