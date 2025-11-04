@@ -1,0 +1,15 @@
+# Node / ZCLI
+node_modules/
+.zcli/
+.zcli-auth.json
+.cache/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Build outputs
+dist/
+tmp/
