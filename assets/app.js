@@ -1,54 +1,39 @@
 let client;
 
-const STORAGE_KEY    = 'admin_enforcer_domains';     // team-wide key (Zendesk App Installation Storage)
-const LOCAL_DEV_KEY  = 'admin_enforcer_domains_dev'; // fallback key when running locally (404)
-const EDIT_KEY       = 'admin_enforcer_editmode';    // session-only toggle for edit UI
+const STORAGE_KEY    = 'admin_enforcer_domains';     // team-wide key (App Storage)
+const LOCAL_DEV_KEY  = 'admin_enforcer_domains_dev'; // fallback key in zcli
+const EDIT_KEY       = 'admin_enforcer_editmode';    // session-only toggle for editing rules
 
-/* -----------------------------
- *  Storage helpers
- * --------------------------- */
-
-/** Installation id is needed for the /apps/installations/* storage endpoints */
+/* ================== Storage Helpers ================== */
 async function getInstallationId() {
-  const meta = await client.metadata(); // { appId, installationId, ... }
+  const meta = await client.metadata();
   return meta.installationId;
 }
-
-/* Local dev fallback (used only when storage endpoints 404 under zcli) */
 function loadLocal() {
-  try {
-    const raw = localStorage.getItem(LOCAL_DEV_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(localStorage.getItem(LOCAL_DEV_KEY) || '{}'); }
+  catch { return {}; }
 }
 function saveLocal(map) {
   localStorage.setItem(LOCAL_DEV_KEY, JSON.stringify(map));
 }
 
-/* Load team-wide map; if 404 (not installed), silently fall back to local */
 async function loadMap() {
   try {
     const installationId = await getInstallationId();
     const res = await client.request({
-      url: `/api/v2/apps/installations/${installationId}/storage.json?key=${encodeURIComponent(STORAGE_KEY)}`,
+      url: `/api/v2/apps/installations/${installationId}/storage.json?key=${STORAGE_KEY}`,
       type: 'GET'
     });
-    const raw = res?.value; // server returns { key, value }
-    return raw ? JSON.parse(raw) : {};
+    return res?.value ? JSON.parse(res.value) : {};
   } catch (e) {
-    const status = e?.status ?? e?.xhr?.status;
-    if (status === 404) {
-      console.warn('App Storage 404 in dev, using localStorage fallback');
+    if ((e?.status ?? e?.xhr?.status) === 404) {
+      console.warn('[AdminEnforcer] Using local fallback storage');
       return loadLocal();
     }
-    console.warn('loadMap failed, returning empty map', e);
+    console.warn('[AdminEnforcer] loadMap failed', e);
     return {};
   }
 }
-
-/* Save team-wide map; if 404 (not installed), fall back to local */
 async function saveMap(map) {
   try {
     const installationId = await getInstallationId();
@@ -56,53 +41,34 @@ async function saveMap(map) {
       url: `/api/v2/apps/installations/${installationId}/storage.json`,
       type: 'PUT',
       contentType: 'application/json',
-      data: JSON.stringify({
-        key: STORAGE_KEY,
-        value: JSON.stringify(map)
-      })
+      data: JSON.stringify({ key: STORAGE_KEY, value: JSON.stringify(map) })
     });
   } catch (e) {
-    const status = e?.status ?? e?.xhr?.status;
-    if (status === 404) {
-      console.warn('App Storage 404 in dev, saving to localStorage fallback');
+    if ((e?.status ?? e?.xhr?.status) === 404) {
+      console.warn('[AdminEnforcer] Saving to local fallback storage');
       return saveLocal(map);
     }
     throw e;
   }
 }
 
-/* -----------------------------
- *  UI helpers
- * --------------------------- */
-function normalizeDomain(v) {
-  return (v || '').trim().toLowerCase().replace(/^@/, '');
-}
+/* ================== UI Helpers ================== */
+function normalizeDomain(v) { return (v || '').trim().toLowerCase().replace(/^@/, ''); }
 function validate(domain, email) {
   if (!domain || !domain.includes('.')) return 'Enter a valid domain like "disney.com".';
-  if (!email || !email.includes('@') || email.startsWith('@') || email.endsWith('@')) {
-    return 'Enter a valid admin email like "erin@disney.com".';
-  }
+  if (!email || !email.includes('@')) return 'Enter a valid admin email.';
   return null;
 }
-function setStatus(msg, kind = '') {
-  const el = document.getElementById('status');
-  el.textContent = msg || '';
-  el.className = `status ${kind}`;
-}
-function editMode() {
-  return sessionStorage.getItem(EDIT_KEY) === '1';
-}
 function setInputsEnabled(enabled) {
-  ['domain', 'admin-email', 'add-btn', 'clear-btn'].forEach(id => {
+  ['domain','admin-email','add-btn','clear-btn'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = !enabled;
   });
   document.querySelectorAll('.remove-btn').forEach(b => (b.disabled = !enabled));
 }
+function editMode() { return sessionStorage.getItem(EDIT_KEY) === '1'; }
 
-/* -----------------------------
- *  Render rules list (with inline confirm remove)
- * --------------------------- */
+/* ================== Render Rules ================== */
 async function renderDomains() {
   const wrap = document.getElementById('locks');
   const map = await loadMap();
@@ -110,179 +76,120 @@ async function renderDomains() {
 
   const domains = Object.keys(map).sort();
   if (!domains.length) {
-    const empty = document.createElement('div');
-    empty.className = 'muted';
-    empty.style.opacity = '.75';
-    empty.textContent = 'No domain rules set.';
-    wrap.appendChild(empty);
+    wrap.innerHTML = `<div class="muted" style="opacity:.75;">No domain rules set.</div>`;
     return;
   }
 
-  function makeRow(domain, email) {
+  for (const domain of domains) {
+    const email = map[domain];
     const row = document.createElement('div');
     row.className = 'rule';
+    row.innerHTML = `
+      <span class="pill"><b>@${domain}</b></span>
+      <span class="pill email">${email}</span>
+      <button class="btn remove-btn" ${!editMode() ? 'disabled' : ''}>Remove</button>
+    `;
 
-    const pillDomain = document.createElement('span');
-    pillDomain.className = 'pill';
-    pillDomain.title = '@' + domain;
-    pillDomain.innerHTML = `<b>@${domain}</b>`;
-
-    const pillEmail = document.createElement('span');
-    pillEmail.className = 'pill email';
-    pillEmail.title = email;
-    pillEmail.textContent = email;
-
-    const right = document.createElement('div');
-    right.className = 'right';
-
-    const del = document.createElement('button');
-    del.className = 'btn remove-btn';
-    del.textContent = 'Remove';
-    del.disabled = !editMode();
-
-    // Inline two-step confirm (no window.confirm)
-    let arming = false;
-    let timer = null;
+    const del = row.querySelector('.remove-btn');
+    let confirm = false;
+    let timer;
 
     del.addEventListener('click', async () => {
       if (!editMode()) return;
 
-      if (!arming) {
-        arming = true;
+      if (!confirm) {
+        confirm = true;
         del.textContent = 'Confirm?';
         del.classList.add('danger');
         timer = setTimeout(() => {
-          arming = false;
+          confirm = false;
           del.textContent = 'Remove';
           del.classList.remove('danger');
-        }, 5000);
+        }, 4000);
         return;
       }
 
-      // confirmed
       clearTimeout(timer);
-      arming = false;
-      del.textContent = 'Removing…';
-      del.disabled = true;
-
-      const cur = await loadMap();
-      delete cur[domain];
-      await saveMap(cur);
+      const map = await loadMap();
+      delete map[domain];
+      await saveMap(map);
       await renderDomains();
-      client.invoke('notify', `Removed rule for @${domain}`, 'notice');
     });
 
-    right.appendChild(del);
-    row.appendChild(pillDomain);
-    row.appendChild(pillEmail);
-    row.appendChild(right);
-    return row;
-  }
-
-  for (const d of domains) {
-    wrap.appendChild(makeRow(d, map[d]));
+    wrap.appendChild(row);
   }
 }
 
-/* -----------------------------
- *  UI wiring
- * --------------------------- */
+/* ================== Setup UI ================== */
 function setupUI() {
-  const domainInput = document.getElementById('domain');
-  const emailInput  = document.getElementById('admin-email');
-  const addBtn      = document.getElementById('add-btn');
-  const clearBtn    = document.getElementById('clear-btn');
-  const confirmBox  = document.getElementById('confirm');
-  const yesBtn      = document.getElementById('confirm-yes');
-  const noBtn       = document.getElementById('confirm-no');
-  const toggle      = document.getElementById('edit-toggle');
-
-  // seed edit mode from session
+  const toggle = document.getElementById('edit-toggle');
   toggle.checked = editMode();
   setInputsEnabled(editMode());
 
   toggle.addEventListener('change', () => {
     sessionStorage.setItem(EDIT_KEY, toggle.checked ? '1' : '0');
     setInputsEnabled(toggle.checked);
-    setStatus(toggle.checked ? 'Edit enabled.' : 'Edit disabled.');
   });
+
+  const domainInput = document.getElementById('domain');
+  const emailInput  = document.getElementById('admin-email');
+  const addBtn      = document.getElementById('add-btn');
 
   async function addRule() {
     if (!editMode()) return;
     const domain = normalizeDomain(domainInput.value);
-    const email  = (emailInput.value || '').trim().toLowerCase();
-
+    const email  = emailInput.value.trim().toLowerCase();
     const err = validate(domain, email);
-    if (err) { setStatus(err, 'bad'); return; }
+    if (err) return;
 
     const map = await loadMap();
     map[domain] = email;
     await saveMap(map);
     await renderDomains();
-
-    setStatus(`Added @${domain} → ${email}`, 'good');
     domainInput.value = '';
-    emailInput.value  = '';
+    emailInput.value = '';
   }
 
   addBtn.addEventListener('click', addRule);
-  domainInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addRule(); });
-  emailInput.addEventListener('keydown',  (e) => { if (e.key === 'Enter') addRule(); });
 
-  // Clear-all with inline confirmation
-  clearBtn.addEventListener('click', () => {
-    if (!editMode()) return;
-    confirmBox.classList.add('show');
-  });
-  noBtn.addEventListener('click', () => confirmBox.classList.remove('show'));
-  yesBtn.addEventListener('click', async () => {
-    await saveMap({});
-    await renderDomains();
-    confirmBox.classList.remove('show');
-    setStatus('Cleared all domain rules.');
-  });
-
-  // initial render
   renderDomains();
 }
 
-/* -----------------------------
- *  Enforcement on ticket save
- * --------------------------- */
+/* ================== Enforcement (BLOCK) ================== */
 async function onTicketSave() {
   const data = await client.get(['ticket.requester', 'ticket.collaborators']);
-  const requester = data['ticket.requester'];
-  const ccList    = data['ticket.collaborators'] || [];
-
-  const requesterEmail = requester?.email?.trim().toLowerCase();
-  const domain         = requesterEmail?.split('@')[1];
-  const ccEmails       = ccList.map(u => u.email?.trim().toLowerCase()).filter(Boolean);
+  const requesterEmail = data['ticket.requester']?.email?.toLowerCase();
+  const domain = requesterEmail?.split('@')[1];
+  const ccEmails = (data['ticket.collaborators'] || []).map(u => u.email?.toLowerCase());
 
   const map = await loadMap();
-  const requiredAdmin = domain ? map[domain] : null;
+  const requiredAdmin = map[domain];
 
-  console.log('--- Admin Enforcer Debug ---', { requesterEmail, domain, requiredAdmin, ccEmails, map });
+  // No rule for this domain → allow save
+  if (!requiredAdmin) return true;
 
-  // allow save if no rule applies
-  if (!requesterEmail || !domain || !requiredAdmin) return true;
-
-  if (!ccEmails.includes(requiredAdmin)) {
-    const msg = `Admin ${requiredAdmin} must be CC’d before saving (for @${domain}).`;
-    await client.invoke('notify', msg, 'error');
-    return Promise.reject(msg); // block the save
+  // ✅ NEW RULE: If the requester *is* the required admin → allow save, no enforcement
+  if (requesterEmail === requiredAdmin) {
+    console.log(`[AdminEnforcer] Admin (${requiredAdmin}) is requester → skipping enforcement.`);
+    return true;
   }
 
-  return true;
+  // Normal enforcement: required admin must be CC'd
+  if (ccEmails.includes(requiredAdmin)) return true;
+
+  const msg = `Admin ${requiredAdmin} must be CC'd before saving (for @${domain}).`;
+  await client.invoke('notify', msg, 'error');
+  return Promise.reject(msg);
 }
 
-/* -----------------------------
- *  Bootstrap
- * --------------------------- */
+
+/* ================== Bootstrap ================== */
 function init() {
   client = ZAFClient.init();
-  client.on('app.registered', async () => {
+  client.on('app.registered', () => {
     setupUI();
     client.on('ticket.save', () => onTicketSave());
   });
 }
+
 init();
